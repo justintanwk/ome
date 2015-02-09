@@ -4,6 +4,7 @@ from ome import base, settings, components, datasets, models, timing
 from ome.loading import dataset_loading
 from ome.loading import component_loading
 from ome.loading import model_loading
+from ome.loading import map_loading
 
 from sqlalchemy.schema import Sequence, CreateSequence
 from warnings import warn
@@ -50,14 +51,15 @@ if __name__ == "__main__":
     if args.drop_all:
         logging.info("Dropping everything from the database")
         drop_all_tables(base.engine)
-        logging.info("Building the database models")
-        base.Base.metadata.create_all()
 
         try:
             base.omics_database.genome_data.drop()
         except: 
             pass
     
+    logging.info("Building the database models")
+    base.Base.metadata.create_all()
+
     if args.drop_models:
         logging.info('Dropping rows from models')
         connection = base.engine.connect()
@@ -67,7 +69,10 @@ if __name__ == "__main__":
             trans.commit()
         except:
             trans.rollback()
-                        
+
+    # make the session
+    session = base.Session()
+
     if not args.skip_genomes:
         logging.info('Loading genomes')
         genbank_dir = join(settings.data_directory, 'annotation', 'genbank')
@@ -77,11 +82,10 @@ if __name__ == "__main__":
             logging.info('Loading genome from genbank file (%d of %d) %s' % (i + 1, n, genbank_file))
             try:
                 if genbank_file != '.DS_Store':
-                    component_loading.load_genome(join(genbank_dir, genbank_file))
+                    component_loading.load_genome(join(genbank_dir, genbank_file), session)
             except Exception as e:
                 logging.error(str(e))
 
-        session = base.Session()
 
         data_genomes = (session
                         .query(base.Genome)
@@ -110,18 +114,35 @@ if __name__ == "__main__":
                 logging.info('Loading model (%d of %d) %s' % (i + 1, n, model_id))
                 try:
                     model_loading.load_model(model_id, model_dir, genome_id,
-                                             timestamp, pmid)
+                                             timestamp, pmid, session)
                 except Exception as e:
-                    logging.exception('Could not load model %s. %s' % (model_id, e))
-                    raise
-    genome_data = base.omics_database.genome_data
+                    logging.error('Could not load model %s. %s' % (model_id, e))
+                    # raise
+
+        logging.info("Loading Escher maps")
+        map_loading.load_maps_from_server(session, drop_maps=args.drop_models)
+    session.close()
 
     if MONGO_INSTALLED:
+        genome_data = base.omics_database.genome_data
         genome_data.create_index([("data_set_id", ASCENDING),
                                   ("leftpos", ASCENDING)])
 
-    session.close()
+        session = base.Session()
+        chromosome = (session
+                      .query(base.Chromosome)
+                      .join(base.Genome)
+                      .join(models.Model, models.Model.genome_id == base.Genome.id)
+                      .filter(models.Model.bigg_id == 'iJO1366')
+                      .one())
+        # dataset_loading.load_raw_files(join(settings.data_directory, 'rnaseq_experiment', 'fastq', 'escher_pub'),
+        #                                group_name='escher_pub', normalize=False, raw=False)
+        dataset_loading.run_cuffquant(base, datasets, chromosome, group_name='escher_pub')
+        dataset_loading.run_cuffnorm(base, datasets, chromosome, group_name='escher_pub')
+        dataset_loading.load_cuffnorm(base, datasets, group_name='escher_pub')
+        session.close()
 
+    base.Session.close_all()
 """
         dataset_loading.load_raw_files(settings.data_directory+'/chip_experiment/bam/crp', group_name='crp', normalize=normalize_flag, raw=raw_flag)
         dataset_loading.load_raw_files(settings.data_directory+'/chip_experiment/bam/yome', group_name='yome', normalize=normalize_flag, raw=raw_flag)

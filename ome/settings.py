@@ -113,6 +113,16 @@ def load_settings_from_file(filepath="settings.ini", in_omelib=True):
         if cufflinks is None:
             cufflinks = "./cufflinks"
         config.set("EXECUTABLES", "cufflinks", cufflinks)
+    if not config.has_option("EXECUTABLES", "cuffnorm"):
+        cuffnorm = which("cuffnorm")
+        if cuffnorm is None:
+            cuffnorm = "./cuffnorm"
+        config.set("EXECUTABLES", "cuffnorm", cuffnorm)
+    if not config.has_option("EXECUTABLES", "cuffquant"):
+        cuffquant = which("cuffquant")
+        if cuffquant is None:
+            cuffquant = "./cuffquant"
+        config.set("EXECUTABLES", "cuffquant", cuffquant)
 
     # write the options back to the file
     with open(filepath, "w") as outfile:
@@ -131,6 +141,8 @@ def load_settings_from_file(filepath="settings.ini", in_omelib=True):
     self.Rscript = _escape_space(config.get("EXECUTABLES", "Rscript"))
     self.primer3 = _escape_space(config.get("EXECUTABLES", "primer3"))
     self.cufflinks = config.get("EXECUTABLES", "cufflinks")
+    self.cuffnorm = config.get("EXECUTABLES", "cuffnorm")
+    self.cuffquant = config.get("EXECUTABLES", "cuffquant")
 
     # make a psql string with the database options included
     self.hostname, self.port = postgres_host.split(":")
